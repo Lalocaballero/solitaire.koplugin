@@ -27,13 +27,22 @@ local SolitaireUI = InputContainer:extend{
     covers_fullscreen = true,
 }
 
+
 function SolitaireUI:init()
     self.dimen = Screen:getSize()
+    self.dpi = Screen:getDPI()
+    
     self.screen_width = self.dimen.w
     self.screen_height = self.dimen.h
 
+    -- Helper function to convert pixel values to points based on screen DPI
+    -- This allows us to maintain consistent physical sizes across different screen densities
+    local function px_to_pt(px)
+        return math.floor(px * 72 / self.dpi)
+    end
+
     -- UI element heights
-    self.status_bar_height = 35
+    self.status_bar_height = self.screen_height * 0.03
     self.button_bar_height = 50
 
     -- Card dimensions
@@ -48,12 +57,18 @@ function SolitaireUI:init()
     -- Layout positions
     self.margin = math.floor(self.screen_width * 0.02)
 
-    -- Fonts
-    self.rank_font = Font:getFace("cfont", math.floor(self.card_width * 0.22))
-    self.suit_center_font = Font:getFace("cfont", math.floor(self.card_width * 0.30))
-    self.small_font = Font:getFace("cfont", math.floor(self.card_width * 0.22))
-    self.status_font = Font:getFace("cfont", 16)
+    -- Desired pixel heights as fractions of card_width
+    local corner_px      = math.floor(self.card_width/2)  -- rank + corner suit
+    local center_suit_px = math.floor(self.card_width)    -- large centre suit
+    local status_pt      = math.floor(self.status_bar_height * 1.45)
 
+
+    -- Monospace font for rank and suit symbols to ensure proper alignment
+    self.rank_font        = Font:getFace("scfont", px_to_pt(corner_px))
+    self.suit_font        = Font:getFace("scfont", px_to_pt(corner_px))
+    self.suit_center_font = Font:getFace("scfont", px_to_pt(center_suit_px))
+    self.small_font       = Font:getFace("scfont", px_to_pt(center_suit_px)) -- Empty Aces slots
+    self.status_font      = Font:getFace("scfont", px_to_pt(status_pt)) -- Status bar font size based on its height
     -- Save file path
     self.save_path = DataStorage:getSettingsDir() .. "/solitaire_save.lua"
 
@@ -272,7 +287,8 @@ function SolitaireUI:drawGame(bb, offset_x, offset_y)
     end
 end
 
-function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card)
+function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card, is_stock)
+    local is_stock = is_stock or false
     local border_width = highlighted and 3 or 1
 
     bb:paintRect(x, y, self.card_width, self.card_height, Blitbuffer.COLOR_WHITE)
@@ -295,10 +311,10 @@ function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card)
             face = self.rank_font,
             fgcolor = text_color,
         }
-        rank_widget:paintTo(bb, x + padding, y + padding)
+        rank_widget:paintTo(bb, x + padding, y)
         rank_widget:free()
 
-        if is_top_card then
+        if is_top_card then -- Draw Centered suit symbol on top card of each pile
             local suit_center_widget = TextWidget:new{
                 text = suit,
                 face = self.suit_center_font,
@@ -307,19 +323,40 @@ function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card)
             local sw = suit_center_widget:getSize().w
             local sh = suit_center_widget:getSize().h
 
-            local center_x = x + (self.card_width - sw) / 2
-            local center_y = y + self.card_height - sh - (self.card_height * 0.25)
-
+            local center_x = x + math.floor((self.card_width - sw) / 2)
+            local center_y = y + math.floor((self.card_height - sh) / 2)
             suit_center_widget:paintTo(bb, center_x, center_y)
             suit_center_widget:free()
+        else -- Draw smaller suit symbol in corner for non-top cards to help identify them
+            local suit_tr_widget = TextWidget:new{
+                text = suit,
+                face = self.suit_font,
+                fgcolor = text_color,
+            }
+            local stw = suit_tr_widget:getSize().w
+            if(is_stock) then
+                suit_tr_widget:paintTo(bb, x + padding, y + self.card_height - stw - padding * 2)
+            else
+                suit_tr_widget:paintTo(bb, x + self.card_width - stw - padding, y)
+            end
+
+            suit_tr_widget:free()
         end
 
-    elseif card then
-        local pattern_margin = 4
-        for py = y + pattern_margin, y + self.card_height - pattern_margin - 2, 4 do
-            for px = x + pattern_margin, x + self.card_width - pattern_margin - 2, 4 do
-                bb:paintRect(px, py, 2, 2, Blitbuffer.COLOR_DARK_GRAY)
-            end
+    elseif card then -- Face-down card pattern
+        self:drawCardBackPattern(bb, x, y)
+    end
+end
+
+function SolitaireUI:drawCardBackPattern(bb, x, y)
+    local pattern_color = Blitbuffer.COLOR_DARK_GRAY
+    local density = 16
+    local spacing = math.floor(self.card_width / density)
+    local dot_size = math.max(1, math.floor(self.card_width * 0.03))
+
+    for i = spacing, self.card_width - spacing + dot_size, spacing do
+        for j = spacing, self.card_height - spacing + dot_size/2, spacing do
+            bb:paintRect(x + i - dot_size/2, y + j - dot_size/2, dot_size, dot_size, pattern_color)
         end
     end
 end
@@ -398,7 +435,7 @@ function SolitaireUI:drawWaste(bb, x, y)
                 })
             end
 
-            self:drawCard(bb, card_x, y, card, highlight, is_top)
+            self:drawCard(bb, card_x, y, card, highlight, is_top, true)
         end
     else
         -- Draw-1 mode: show single card
@@ -630,10 +667,14 @@ function SolitaireUI:onHold(arg, ges)
     return true
 end
 
-function SolitaireUI:refreshUI()
+-- mode can be:
+--   "ui"      – no flash, good quality. Use for selection changes and single-card moves.
+--   "partial" – full flash to clear ghosting. Use when the whole board changes.
+--   "full"    – reserved for open/close.
+function SolitaireUI:refreshUI(mode)
     self.touch_zones = {}
     self:buildUI()
-    UIManager:setDirty(self, "partial")
+    UIManager:setDirty(self, mode or "ui")
 end
 
 function SolitaireUI:newGame()
@@ -648,7 +689,7 @@ function SolitaireUI:newGame()
     self.hint_highlight = nil
     self.game_started = false
     self:deleteSave()
-    self:refreshUI()
+    self:refreshUI("partial")
 end
 
 function SolitaireUI:undoMove()
@@ -656,7 +697,7 @@ function SolitaireUI:undoMove()
         self.selected_source = nil
         self.hint_highlight = nil
         self:saveGame()
-        self:refreshUI()
+        self:refreshUI("partial")
     else
         UIManager:show(InfoMessage:new{
             text = _("Nothing to undo."),
@@ -700,7 +741,7 @@ function SolitaireUI:autoMove()
         self:saveGame()
     end
 
-    self:refreshUI()
+    self:refreshUI(total_moves > 0 and "partial" or "ui")
 
     if self.game:checkWin() then
         self:showWinMessage()
@@ -728,7 +769,7 @@ function SolitaireUI:toggleDrawMode()
         timeout = 1,
     })
 
-    self:refreshUI()
+    self:refreshUI("partial")
 end
 
 function SolitaireUI:showMoreMenu()
