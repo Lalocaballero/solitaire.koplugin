@@ -455,12 +455,15 @@ function SolitaireUI:drawFoundation(bb, x, y, foundation_idx)
     })
 
     local foundation = self.game.foundations[foundation_idx]
+    local is_selected = self.selected_source and
+        self.selected_source.type == "foundation" and
+        self.selected_source.index == foundation_idx
     local is_hint = self.hint_highlight and
         self.hint_highlight.foundation == foundation_idx
 
     if #foundation > 0 then
         local card = foundation[#foundation]
-        self:drawCard(bb, x, y, card, is_hint, true)
+        self:drawCard(bb, x, y, card, is_selected or is_hint, true)
     else
         local suit_symbol = Game.SUITS[foundation_idx].symbol
         self:drawEmptySlot(bb, x, y, suit_symbol)
@@ -577,6 +580,8 @@ function SolitaireUI:onTap(arg, ges)
                     self:showWinMessage()
                 end
             end
+        elseif #self.game.foundations[zone.index] > 0 then
+            self.selected_source = {type = "foundation", index = zone.index}
         end
         self:refreshUI()
         return true
