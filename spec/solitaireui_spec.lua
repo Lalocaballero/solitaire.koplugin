@@ -150,4 +150,32 @@ ui:onTap(nil, { pos = { x = 1, y = 1 } })
 assert_equal(ui.selected_source and ui.selected_source.type, "foundation", "foundation tap selects source type")
 assert_equal(ui.selected_source and ui.selected_source.index, 1, "foundation tap selects source index")
 
+local won_game = Game:new()
+for foundation_idx = 1, 4 do
+    for rank = 1, 13 do
+        table.insert(won_game.foundations[foundation_idx], {
+            suit = foundation_idx,
+            rank = rank,
+            face_up = true,
+        })
+    end
+end
+
+local saved_won_game = false
+local deleted_won_game_save = false
+local closing_ui = setmetatable({
+    game = won_game,
+    saveGame = function()
+        saved_won_game = true
+    end,
+    deleteSave = function()
+        deleted_won_game_save = true
+    end,
+}, { __index = SolitaireUI })
+
+closing_ui:onClose()
+
+assert_equal(saved_won_game, false, "closing a won game does not save completed state")
+assert_equal(deleted_won_game_save, true, "closing a won game clears saved state")
+
 print("solitaireui_spec: ok")
