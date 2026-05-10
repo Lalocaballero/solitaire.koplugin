@@ -55,6 +55,37 @@ function Game:copyPile(pile)
     return copy
 end
 
+function Game:isValidCard(card)
+    return type(card) == "table" and
+        type(card.suit) == "number" and card.suit >= 1 and card.suit <= 4 and
+        type(card.rank) == "number" and card.rank >= 1 and card.rank <= 13 and
+        type(card.face_up) == "boolean"
+end
+
+function Game:isValidPile(pile)
+    if type(pile) ~= "table" then
+        return false
+    end
+    for _, card in ipairs(pile) do
+        if not self:isValidCard(card) then
+            return false
+        end
+    end
+    return true
+end
+
+function Game:isValidPileGroup(piles, expected_count)
+    if type(piles) ~= "table" then
+        return false
+    end
+    for i = 1, expected_count do
+        if not self:isValidPile(piles[i]) then
+            return false
+        end
+    end
+    return true
+end
+
 -- Save current state to history (call before making a move)
 function Game:saveState()
     local state = {
@@ -540,12 +571,24 @@ end
 
 -- Load game state from saved data
 function Game:fromSaveData(data)
-    if not data then return false end
-    
-    self.stock = data.stock or {}
-    self.waste = data.waste or {}
-    self.foundations = data.foundations or {{}, {}, {}, {}}
-    self.tableau = data.tableau or {{}, {}, {}, {}, {}, {}, {}}
+    if type(data) ~= "table" then return false end
+
+    local stock = data.stock or {}
+    local waste = data.waste or {}
+    local foundations = data.foundations or {{}, {}, {}, {}}
+    local tableau = data.tableau or {{}, {}, {}, {}, {}, {}, {}}
+
+    if not self:isValidPile(stock) or
+        not self:isValidPile(waste) or
+        not self:isValidPileGroup(foundations, 4) or
+        not self:isValidPileGroup(tableau, 7) then
+        return false
+    end
+
+    self.stock = stock
+    self.waste = waste
+    self.foundations = foundations
+    self.tableau = tableau
     self.moves = data.moves or 0
     self.score = data.score or 0
     self.draw_mode = data.draw_mode or 1
