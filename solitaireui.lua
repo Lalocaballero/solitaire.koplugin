@@ -42,7 +42,7 @@ function SolitaireUI:init()
     end
 
     -- UI element heights
-    self.status_bar_height = self.screen_height * 0.03
+    self.status_bar_height = math.max(30, math.floor(self.screen_height * 0.035))
     self.button_bar_height = 50
 
     -- Card dimensions
@@ -127,6 +127,27 @@ function SolitaireUI:init()
     self:buildUI()
 end
 
+function SolitaireUI:updateLayoutMetrics(game_area_height)
+    local max_cards = 1
+    if self.game then
+        for _, column in ipairs(self.game.tableau) do
+            max_cards = math.max(max_cards, #column)
+        end
+    end
+
+    local top_row_height = 10 + self.card_height + self.margin
+    local available_tableau_height = game_area_height - top_row_height - self.margin
+    local comfortable_offset = math.floor(self.card_height * 0.34)
+    local minimum_offset = math.max(10, math.floor(self.card_height * 0.16))
+
+    if max_cards > 1 then
+        local fitting_offset = math.floor((available_tableau_height - self.card_height) / (max_cards - 1))
+        self.stack_offset = math.max(minimum_offset, math.min(comfortable_offset, fitting_offset))
+    else
+        self.stack_offset = comfortable_offset
+    end
+end
+
 function SolitaireUI:loadSettings()
     local ok, settings = pcall(LuaSettings.open, LuaSettings, self.settings_path)
     if ok and settings then
@@ -171,6 +192,7 @@ function SolitaireUI:buildUI()
     self.touch_zones = {}
 
     local game_area_height = self.screen_height - self.status_bar_height - self.button_bar_height
+    self:updateLayoutMetrics(game_area_height)
 
     -- Draw mode label
     local draw_mode_label = self.game.draw_mode == 3 and "D3" or "D1"
@@ -201,12 +223,8 @@ function SolitaireUI:buildUI()
                     callback = function() self:toggleDrawMode() end,
                 },
                 {
-                    text = _("Stats"),
-                    callback = function() self:showStats() end,
-                },
-                {
-                    text = _("Top"),
-                    callback = function() self:showLeaderboard() end,
+                    text = _("More"),
+                    callback = function() self:showMoreMenu() end,
                 },
                 {
                     text = _("Close"),
@@ -219,10 +237,12 @@ function SolitaireUI:buildUI()
 
     self.button_bar_height = button_bar:getSize().h
     game_area_height = self.screen_height - self.status_bar_height - self.button_bar_height
+    self:updateLayoutMetrics(game_area_height)
 
     local time_str = self.game:formatTime()
-    local status_text = string.format("Moves: %d  |  Score: %d  |  Time: %s",
-        self.game.moves, self.game.score, time_str)
+    local status_text = string.format("M:%d  S:%d  %s  %s  Stock:%d  Waste:%d",
+        self.game.moves, self.game.score, time_str, draw_mode_label,
+        #self.game.stock, #self.game.waste)
 
     local status_bar = FrameContainer:new{
         width = self.screen_width,
@@ -278,6 +298,9 @@ function SolitaireUI:drawGame(bb, offset_x, offset_y)
     end
 
     local tableau_y = y_offset + self.card_height + self.margin
+    bb:paintRect(self.margin, tableau_y - math.floor(self.margin / 2),
+        self.screen_width - 2 * self.margin, 1, Blitbuffer.COLOR_LIGHT_GRAY)
+
     local total_tableau_width = 7 * self.card_width + 6 * self.card_spacing
     local tableau_start_x = (self.screen_width - total_tableau_width) / 2
 
@@ -291,8 +314,12 @@ function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card, is_stock
     local is_stock = is_stock or false
     local border_width = highlighted and 3 or 1
 
+    if highlighted then
+        bb:paintRect(x - 2, y - 2, self.card_width + 4, self.card_height + 4, Blitbuffer.COLOR_GRAY)
+    end
     bb:paintRect(x, y, self.card_width, self.card_height, Blitbuffer.COLOR_WHITE)
     bb:paintBorder(x, y, self.card_width, self.card_height, border_width, Blitbuffer.COLOR_BLACK)
+    bb:paintBorder(x + 2, y + 2, self.card_width - 4, self.card_height - 4, 1, Blitbuffer.COLOR_LIGHT_GRAY)
 
     if card and card.face_up then
         local rank = self.game.RANKS[card.rank]
@@ -312,6 +339,9 @@ function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card, is_stock
             fgcolor = text_color,
         }
         rank_widget:paintTo(bb, x + padding, y)
+        local rw = rank_widget:getSize().w
+        local rh = rank_widget:getSize().h
+        rank_widget:paintTo(bb, x + self.card_width - rw - padding, y + self.card_height - rh - padding)
         rank_widget:free()
 
         if is_top_card then -- Draw Centered suit symbol on top card of each pile
@@ -327,6 +357,16 @@ function SolitaireUI:drawCard(bb, x, y, card, highlighted, is_top_card, is_stock
             local center_y = y + math.floor((self.card_height - sh) / 2)
             suit_center_widget:paintTo(bb, center_x, center_y)
             suit_center_widget:free()
+            local suit_br_widget = TextWidget:new{
+                text = suit,
+                face = self.suit_font,
+                fgcolor = text_color,
+            }
+            local sbw = suit_br_widget:getSize().w
+            local sbh = suit_br_widget:getSize().h
+            suit_br_widget:paintTo(bb, x + padding, y + self.card_height - sbh - padding)
+            suit_br_widget:paintTo(bb, x + self.card_width - sbw - padding, y)
+            suit_br_widget:free()
         else -- Draw smaller suit symbol in corner for non-top cards to help identify them
             local suit_tr_widget = TextWidget:new{
                 text = suit,
@@ -350,20 +390,24 @@ end
 
 function SolitaireUI:drawCardBackPattern(bb, x, y)
     local pattern_color = Blitbuffer.COLOR_DARK_GRAY
-    local density = 16
-    local spacing = math.floor(self.card_width / density)
+    local density = 12
+    local spacing = math.max(4, math.floor(self.card_width / density))
     local dot_size = math.max(1, math.floor(self.card_width * 0.03))
 
+    bb:paintBorder(x + 4, y + 4, self.card_width - 8, self.card_height - 8, 1, Blitbuffer.COLOR_GRAY)
     for i = spacing, self.card_width - spacing + dot_size, spacing do
         for j = spacing, self.card_height - spacing + dot_size/2, spacing do
-            bb:paintRect(x + i - dot_size/2, y + j - dot_size/2, dot_size, dot_size, pattern_color)
+            if ((i + j) / spacing) % 2 == 0 then
+                bb:paintRect(x + i - dot_size/2, y + j - dot_size/2, dot_size, dot_size, pattern_color)
+            end
         end
     end
 end
 
 function SolitaireUI:drawEmptySlot(bb, x, y, label)
-    bb:paintRect(x, y, self.card_width, self.card_height, Blitbuffer.COLOR_LIGHT_GRAY)
+    bb:paintRect(x, y, self.card_width, self.card_height, Blitbuffer.COLOR_WHITE)
     bb:paintBorder(x, y, self.card_width, self.card_height, 1, Blitbuffer.COLOR_GRAY)
+    bb:paintBorder(x + 4, y + 4, self.card_width - 8, self.card_height - 8, 1, Blitbuffer.COLOR_LIGHT_GRAY)
 
     if label then
         local text_widget = TextWidget:new{
