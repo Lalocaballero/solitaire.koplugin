@@ -108,8 +108,7 @@ solitaire.koplugin/
 | **Hint** | Highlight a suggested move (2 seconds) |
 | **Auto** | Move all possible cards to foundations |
 | **D1/D3** | Toggle between Draw-1 and Draw-3 mode |
-| **Stats** | View game statistics |
-| **Top** | View best scores leaderboard |
+| **More** | Open statistics, leaderboard, and reset options |
 | **Close** | Save and exit the game |
 
 ### Status Bar
@@ -118,6 +117,7 @@ The status bar at the top shows:
 - **Moves** — Number of moves made
 - **Score** — Current score
 - **Time** — Elapsed game time (updates on each interaction)
+- **Mode / Stock / Waste** — Current draw mode and pile counts
 
 ---
 
@@ -326,7 +326,7 @@ self.suit_center_font = Font:getFace("cfont", math.floor(self.card_width * 0.30)
 - **Game Timer**: Tracks elapsed time per game, shown in status bar
 - **Statistics**: Full game stats tracking (wins, losses, streaks, averages, per-mode breakdown)
 - **Leaderboard**: Top 10 best scores with score, moves, time, mode, and date
-- **Stats & Top buttons**: Direct access to statistics and leaderboard from button bar
+- **More menu**: Direct access to statistics, leaderboard, and reset options
 - **Enhanced win message**: Shows time, draw mode, new-best indicators, and win streak
 
 ### v1.0
